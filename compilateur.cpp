@@ -60,6 +60,7 @@ void Digit(void){
 }
 
 void ArithmeticExpression(void);			// Called by Term() and calls Term()
+void Expression(void);
 
 void Term(void){
 	if(current=='('){
@@ -94,6 +95,30 @@ void ArithmeticExpression(void){
 	}
 
 }
+void Expression(void){
+	char relop;
+	ArithmeticExpression();
+
+	if(current=='=' || current=='<' || current=='>'){
+		relop=current;
+		ReadChar();
+		ArithmeticExpression();
+
+		cout << "\tpop %rbx"<<endl;
+		cout << "\tpop %rax"<<endl;
+		cout << "\tcmpq %rbx, %rax"<<endl;
+
+		if(relop=='=')
+			cout << "\tsete %al"<<endl;
+		else if(relop=='<')
+			cout << "\tsetl %al"<<endl;
+		else if(relop=='>')
+			cout << "\tsetg %al"<<endl;
+
+		cout << "\tmovzbq %al, %rax"<<endl;
+		cout << "\tpush %rax"<<endl;
+	}
+}
 
 int main(void){	// First version : Source code on standard input and assembly code on standard output
 	// Header for gcc assembler / linker
@@ -105,8 +130,7 @@ int main(void){	// First version : Source code on standard input and assembly co
 
 	// Let's proceed to the analysis and code production
 	ReadChar();
-	ArithmeticExpression();
-	ReadChar();
+    Expression();
 	// Trailer for the gcc assembler / linker
 	cout << "\tmovq %rbp, %rsp\t\t# Restore the position of the stack's top"<<endl;
 	cout << "\tret\t\t\t# Return from main function"<<endl;
