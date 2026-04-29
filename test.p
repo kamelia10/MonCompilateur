@@ -1,4 +1,3 @@
-[i,s]
-i:=1;
-s:=0;
-FOR i:=1 TO 5 DO s:=s+i.
+[a,b]
+a:=5;
+IF a>3 THEN b:=1.

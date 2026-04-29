@@ -27,6 +27,11 @@
 
 using namespace std;
 
+enum TYPE {
+	UNSIGNED_INT,
+	BOOLEAN
+};
+
 TOKEN current;
 FlexLexer* lexer = new yyFlexLexer;
 
@@ -40,12 +45,25 @@ void Error(string message){
 	exit(-1);
 }
 
+void TypeError(string message){
+	cerr << "Erreur de type ligne " << lexer->lineno()
+	     << " : " << message << endl;
+	exit(-1);
+}
+
 void NextToken(void){
 	current = (TOKEN) lexer->yylex();
 }
 
 bool IsDeclared(string id){
 	return declaredVariables.find(id) != declaredVariables.end();
+}
+
+TYPE TypeOfIdentifier(string id){
+	if(!IsDeclared(id))
+		Error("variable non declaree");
+
+	return UNSIGNED_INT;
 }
 
 // Program := [DeclarationPart] StatementPart
@@ -62,10 +80,10 @@ bool IsDeclared(string id){
 // Term := Factor {MultiplicativeOperator Factor}
 // Factor := Number | Identifier | "(" Expression ")" | "!" Factor
 
-void Expression(void);
+TYPE Expression(void);
 void Statement(void);
 
-void Identifier(void){
+TYPE Identifier(void){
 	string name = lexer->YYText();
 
 	if(!IsDeclared(name))
@@ -73,34 +91,44 @@ void Identifier(void){
 
 	cout << "\tpush " << name << "(%rip)" << endl;
 	NextToken();
+
+	return UNSIGNED_INT;
 }
 
-void Number(void){
+TYPE Number(void){
 	cout << "\tpush $" << lexer->YYText() << endl;
 	NextToken();
+
+	return UNSIGNED_INT;
 }
 
-void Factor(void){
+TYPE Factor(void){
+	TYPE typeFactor;
+
 	if(current == LPARENT){
 		NextToken();
-		Expression();
+		typeFactor = Expression();
 
 		if(current != RPARENT)
 			Error("')' attendu");
 
 		NextToken();
+		return typeFactor;
 	}
 	else if(current == NUMBER){
-		Number();
+		return Number();
 	}
 	else if(current == ID){
-		Identifier();
+		return Identifier();
 	}
 	else if(current == NOT){
 		unsigned long n = ++labelNumber;
 
 		NextToken();
-		Factor();
+		typeFactor = Factor();
+
+		if(typeFactor != BOOLEAN)
+			TypeError("l'operateur ! doit etre applique a un booleen");
 
 		cout << "\tpop %rax" << endl;
 		cout << "\tcmpq $0, %rax" << endl;
@@ -110,22 +138,38 @@ void Factor(void){
 		cout << "NotTrue" << n << ":" << endl;
 		cout << "\tpush $-1" << endl;
 		cout << "EndNot" << n << ":" << endl;
+
+		return BOOLEAN;
 	}
 	else{
 		Error("facteur attendu");
 	}
+
+	return UNSIGNED_INT;
 }
 
-void Term(void){
+TYPE Term(void){
 	string op;
+	TYPE leftType, rightType;
 
-	Factor();
+	leftType = Factor();
 
 	while(current == MULOP){
 		op = lexer->YYText();
 		NextToken();
 
-		Factor();
+		rightType = Factor();
+
+		if(op == "&&"){
+			if(leftType != BOOLEAN || rightType != BOOLEAN)
+				TypeError("l'operateur && attend deux booleens");
+			leftType = BOOLEAN;
+		}
+		else{
+			if(leftType != UNSIGNED_INT || rightType != UNSIGNED_INT)
+				TypeError("les operateurs * / % attendent deux entiers");
+			leftType = UNSIGNED_INT;
+		}
 
 		cout << "\tpop %rbx" << endl;
 		cout << "\tpop %rax" << endl;
@@ -152,18 +196,32 @@ void Term(void){
 			Error("operateur multiplicatif inconnu");
 		}
 	}
+
+	return leftType;
 }
 
-void SimpleExpression(void){
+TYPE SimpleExpression(void){
 	string op;
+	TYPE leftType, rightType;
 
-	Term();
+	leftType = Term();
 
 	while(current == ADDOP){
 		op = lexer->YYText();
 		NextToken();
 
-		Term();
+		rightType = Term();
+
+		if(op == "||"){
+			if(leftType != BOOLEAN || rightType != BOOLEAN)
+				TypeError("l'operateur || attend deux booleens");
+			leftType = BOOLEAN;
+		}
+		else{
+			if(leftType != UNSIGNED_INT || rightType != UNSIGNED_INT)
+				TypeError("les operateurs + et - attendent deux entiers");
+			leftType = UNSIGNED_INT;
+		}
 
 		cout << "\tpop %rbx" << endl;
 		cout << "\tpop %rax" << endl;
@@ -179,19 +237,25 @@ void SimpleExpression(void){
 
 		cout << "\tpush %rax" << endl;
 	}
+
+	return leftType;
 }
 
-void Expression(void){
+TYPE Expression(void){
 	string op;
 	unsigned long n;
+	TYPE leftType, rightType;
 
-	SimpleExpression();
+	leftType = SimpleExpression();
 
 	if(current == RELOP){
 		op = lexer->YYText();
 		NextToken();
 
-		SimpleExpression();
+		rightType = SimpleExpression();
+
+		if(leftType != rightType)
+			TypeError("les deux cotes d'une comparaison doivent avoir le meme type");
 
 		n = ++labelNumber;
 
@@ -219,7 +283,11 @@ void Expression(void){
 		cout << "BoolTrue" << n << ":" << endl;
 		cout << "\tpush $-1" << endl;
 		cout << "BoolEnd" << n << ":" << endl;
+
+		return BOOLEAN;
 	}
+
+	return leftType;
 }
 
 void DeclarationPart(void){
@@ -263,9 +331,7 @@ string AssignementStatement(void){
 		Error("identificateur attendu a gauche de l'affectation");
 
 	string variable = lexer->YYText();
-
-	if(!IsDeclared(variable))
-		Error("variable non declaree");
+	TYPE variableType = TypeOfIdentifier(variable);
 
 	NextToken();
 
@@ -274,7 +340,10 @@ string AssignementStatement(void){
 
 	NextToken();
 
-	Expression();
+	TYPE expressionType = Expression();
+
+	if(variableType != expressionType)
+		TypeError("type different entre la variable et l'expression affectee");
 
 	cout << "\tpop " << variable << "(%rip)" << endl;
 
@@ -286,7 +355,10 @@ void IfStatement(void){
 
 	NextToken();
 
-	Expression();
+	TYPE conditionType = Expression();
+
+	if(conditionType != BOOLEAN)
+		TypeError("la condition du IF doit etre booleenne");
 
 	if(current != THEN_T)
 		Error("THEN attendu");
@@ -318,7 +390,11 @@ void WhileStatement(void){
 	cout << "WhileBegin" << n << ":" << endl;
 
 	NextToken();
-	Expression();
+
+	TYPE conditionType = Expression();
+
+	if(conditionType != BOOLEAN)
+		TypeError("la condition du WHILE doit etre booleenne");
 
 	if(current != DO_T)
 		Error("DO attendu");
@@ -341,13 +417,20 @@ void ForStatement(void){
 
 	string variable = AssignementStatement();
 
+	if(TypeOfIdentifier(variable) != UNSIGNED_INT)
+		TypeError("la variable du FOR doit etre entiere");
+
 	if(current != TO_T)
 		Error("TO attendu");
 
 	cout << "ForBegin" << n << ":" << endl;
 
 	NextToken();
-	Expression();
+
+	TYPE limitType = Expression();
+
+	if(limitType != UNSIGNED_INT)
+		TypeError("la borne du FOR doit etre entiere");
 
 	if(current != DO_T)
 		Error("DO attendu");
