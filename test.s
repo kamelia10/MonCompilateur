@@ -2,7 +2,11 @@
 	.data
 	.align 8
 FormatString1:	.string "%llu\n"
-a:	.quad 0
+a:	.quad 0	# BOOLEAN
+b:	.quad 0	# BOOLEAN
+c:	.quad 0	# BOOLEAN
+d:	.quad 0	# INTEGER
+e:	.quad 0	# INTEGER
 	.text
 	.globl main
 	.extern printf
@@ -12,11 +16,22 @@ main:
 	push $6
 	pop %rbx
 	pop %rax
-	addq %rbx, %rax
-	push %rax
+	cmpq %rbx, %rax
+	jb BoolTrue1
+	push $0
+	jmp BoolEnd1
+BoolTrue1:
+	push $-1
+BoolEnd1:
 	pop a(%rip)
 	push a(%rip)
-	push $1
+	pop b(%rip)
+	push $5
+	pop d(%rip)
+	push $10
+	pop e(%rip)
+	push d(%rip)
+	push e(%rip)
 	pop %rbx
 	pop %rax
 	addq %rbx, %rax

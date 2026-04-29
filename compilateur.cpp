@@ -20,7 +20,8 @@
 #include <string>
 #include <iostream>
 #include <cstdlib>
-#include <set>
+#include <map>
+#include <vector>
 #include <cstring>
 #include <FlexLexer.h>
 #include "tokeniser.h"
@@ -35,7 +36,7 @@ enum TYPE {
 TOKEN current;
 FlexLexer* lexer = new yyFlexLexer;
 
-set<string> declaredVariables;
+map<string, TYPE> declaredVariables;
 unsigned long labelNumber = 0;
 
 void Error(string message){
@@ -63,11 +64,19 @@ TYPE TypeOfIdentifier(string id){
 	if(!IsDeclared(id))
 		Error("variable non declaree");
 
-	return UNSIGNED_INT;
+	return declaredVariables[id];
 }
 
-// Program := [DeclarationPart] StatementPart
-// DeclarationPart := "[" Identifier {"," Identifier} "]"
+string TypeName(TYPE t){
+	if(t == UNSIGNED_INT)
+		return "INTEGER";
+	return "BOOLEAN";
+}
+
+// Program := [VarDeclarationPart] StatementPart
+// VarDeclarationPart := "VAR" VarDeclaration {";" VarDeclaration} "."
+// VarDeclaration := Identifier {"," Identifier} ":" Type
+// Type := "INTEGER" | "BOOLEAN"
 // StatementPart := Statement {";" Statement} "."
 // Statement := AssignementStatement | IfStatement | WhileStatement | ForStatement | BlockStatement | DisplayStatement
 // AssignementStatement := Identifier ":=" Expression
@@ -84,6 +93,25 @@ TYPE TypeOfIdentifier(string id){
 TYPE Expression(void);
 void Statement(void);
 
+TYPE ReadType(void){
+	TYPE t;
+
+	if(current == INTEGER_T){
+		t = UNSIGNED_INT;
+		NextToken();
+		return t;
+	}
+
+	if(current == BOOLEAN_T){
+		t = BOOLEAN;
+		NextToken();
+		return t;
+	}
+
+	Error("type INTEGER ou BOOLEAN attendu");
+	return UNSIGNED_INT;
+}
+
 TYPE Identifier(void){
 	string name = lexer->YYText();
 
@@ -93,7 +121,7 @@ TYPE Identifier(void){
 	cout << "\tpush " << name << "(%rip)" << endl;
 	NextToken();
 
-	return UNSIGNED_INT;
+	return TypeOfIdentifier(name);
 }
 
 TYPE Number(void){
@@ -104,17 +132,17 @@ TYPE Number(void){
 }
 
 TYPE Factor(void){
-	TYPE typeFactor;
+	TYPE factorType;
 
 	if(current == LPARENT){
 		NextToken();
-		typeFactor = Expression();
+		factorType = Expression();
 
 		if(current != RPARENT)
 			Error("')' attendu");
 
 		NextToken();
-		return typeFactor;
+		return factorType;
 	}
 	else if(current == NUMBER){
 		return Number();
@@ -126,9 +154,9 @@ TYPE Factor(void){
 		unsigned long n = ++labelNumber;
 
 		NextToken();
-		typeFactor = Factor();
+		factorType = Factor();
 
-		if(typeFactor != BOOLEAN)
+		if(factorType != BOOLEAN)
 			TypeError("l'operateur ! doit etre applique a un booleen");
 
 		cout << "\tpop %rax" << endl;
@@ -142,16 +170,15 @@ TYPE Factor(void){
 
 		return BOOLEAN;
 	}
-	else{
-		Error("facteur attendu");
-	}
 
+	Error("facteur attendu");
 	return UNSIGNED_INT;
 }
 
 TYPE Term(void){
 	string op;
-	TYPE leftType, rightType;
+	TYPE leftType;
+	TYPE rightType;
 
 	leftType = Factor();
 
@@ -168,7 +195,7 @@ TYPE Term(void){
 		}
 		else{
 			if(leftType != UNSIGNED_INT || rightType != UNSIGNED_INT)
-				TypeError("les operateurs * / % attendent deux entiers");
+				TypeError("les operateurs * / % attendent deux INTEGER");
 			leftType = UNSIGNED_INT;
 		}
 
@@ -203,7 +230,8 @@ TYPE Term(void){
 
 TYPE SimpleExpression(void){
 	string op;
-	TYPE leftType, rightType;
+	TYPE leftType;
+	TYPE rightType;
 
 	leftType = Term();
 
@@ -220,7 +248,7 @@ TYPE SimpleExpression(void){
 		}
 		else{
 			if(leftType != UNSIGNED_INT || rightType != UNSIGNED_INT)
-				TypeError("les operateurs + et - attendent deux entiers");
+				TypeError("les operateurs + et - attendent deux INTEGER");
 			leftType = UNSIGNED_INT;
 		}
 
@@ -245,7 +273,8 @@ TYPE SimpleExpression(void){
 TYPE Expression(void){
 	string op;
 	unsigned long n;
-	TYPE leftType, rightType;
+	TYPE leftType;
+	TYPE rightType;
 
 	leftType = SimpleExpression();
 
@@ -256,7 +285,7 @@ TYPE Expression(void){
 		rightType = SimpleExpression();
 
 		if(leftType != rightType)
-			TypeError("les deux cotes d'une comparaison doivent avoir le meme type");
+			TypeError("comparaison entre " + TypeName(leftType) + " et " + TypeName(rightType));
 
 		n = ++labelNumber;
 
@@ -291,37 +320,63 @@ TYPE Expression(void){
 	return leftType;
 }
 
-void DeclarationPart(void){
-	if(current != LBRACKET)
-		return;
-
-	NextToken();
+void OneVarDeclaration(void){
+	vector<string> names;
+	TYPE declaredType;
 
 	if(current != ID)
 		Error("identificateur attendu dans la declaration");
 
-	while(true){
-		if(current != ID)
-			Error("identificateur attendu");
+	names.push_back(lexer->YYText());
+	NextToken();
 
-		string name = lexer->YYText();
-		declaredVariables.insert(name);
-
-		cout << name << ":\t.quad 0" << endl;
-
+	while(current == COMMA){
 		NextToken();
 
-		if(current == COMMA){
-			NextToken();
-		}
-		else if(current == RBRACKET){
-			NextToken();
-			break;
-		}
-		else{
-			Error("',' ou ']' attendu");
-		}
+		if(current != ID)
+			Error("identificateur attendu apres ','");
+
+		names.push_back(lexer->YYText());
+		NextToken();
 	}
+
+	if(current != COLON)
+		Error("':' attendu dans la declaration");
+
+	NextToken();
+
+	declaredType = ReadType();
+
+	for(unsigned int i=0; i<names.size(); i++){
+		if(IsDeclared(names[i]))
+			Error("variable deja declaree");
+
+		declaredVariables[names[i]] = declaredType;
+		cout << names[i] << ":\t.quad 0\t# " << TypeName(declaredType) << endl;
+	}
+}
+
+void VarDeclarationPart(void){
+	if(current != VAR_T)
+		return;
+
+	NextToken();
+
+	OneVarDeclaration();
+
+	while(current == SEMICOLON){
+		NextToken();
+
+		if(current == DOT)
+			break;
+
+		OneVarDeclaration();
+	}
+
+	if(current != DOT)
+		Error("'.' attendu apres les declarations VAR");
+
+	NextToken();
 }
 
 string AssignementStatement(void){
@@ -341,7 +396,8 @@ string AssignementStatement(void){
 	TYPE expressionType = Expression();
 
 	if(variableType != expressionType)
-		TypeError("type different entre la variable et l'expression affectee");
+		TypeError("affectation impossible : " + variable + " est " + TypeName(variableType)
+		          + " mais l'expression est " + TypeName(expressionType));
 
 	cout << "\tpop " << variable << "(%rip)" << endl;
 
@@ -354,7 +410,7 @@ void DisplayStatement(void){
 	TYPE expressionType = Expression();
 
 	if(expressionType != UNSIGNED_INT)
-		TypeError("DISPLAY ne peut afficher qu'un entier");
+		TypeError("DISPLAY ne peut afficher qu'un INTEGER");
 
 	cout << "\tpop %rdx\t# The value to be displayed" << endl;
 	cout << "\tleaq FormatString1(%rip), %rcx\t# \"%llu\\n\"" << endl;
@@ -371,7 +427,7 @@ void IfStatement(void){
 	TYPE conditionType = Expression();
 
 	if(conditionType != BOOLEAN)
-		TypeError("la condition du IF doit etre booleenne");
+		TypeError("la condition du IF doit etre BOOLEAN");
 
 	if(current != THEN_T)
 		Error("THEN attendu");
@@ -407,7 +463,7 @@ void WhileStatement(void){
 	TYPE conditionType = Expression();
 
 	if(conditionType != BOOLEAN)
-		TypeError("la condition du WHILE doit etre booleenne");
+		TypeError("la condition du WHILE doit etre BOOLEAN");
 
 	if(current != DO_T)
 		Error("DO attendu");
@@ -431,7 +487,7 @@ void ForStatement(void){
 	string variable = AssignementStatement();
 
 	if(TypeOfIdentifier(variable) != UNSIGNED_INT)
-		TypeError("la variable du FOR doit etre entiere");
+		TypeError("la variable du FOR doit etre INTEGER");
 
 	if(current != TO_T)
 		Error("TO attendu");
@@ -443,7 +499,7 @@ void ForStatement(void){
 	TYPE limitType = Expression();
 
 	if(limitType != UNSIGNED_INT)
-		TypeError("la borne du FOR doit etre entiere");
+		TypeError("la borne du FOR doit etre INTEGER");
 
 	if(current != DO_T)
 		Error("DO attendu");
@@ -534,7 +590,7 @@ void Program(void){
 	cout << "\t.align 8" << endl;
 	cout << "FormatString1:\t.string \"%llu\\n\"" << endl;
 
-	DeclarationPart();
+	VarDeclarationPart();
 	StatementPart();
 }
 
