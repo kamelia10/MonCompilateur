@@ -31,6 +31,7 @@ unknown     .
 "TO"        return TO_T;
 "BEGIN"     return BEGIN_T;
 "END"       return END_T;
+"DISPLAY"   return DISPLAY_T;
 
 ":="        return ASSIGN;
 {addop}     return ADDOP;

@@ -1,3 +1,3 @@
-[a,b]
-a:=5;
-IF a>3 THEN b:=1.
+[a]
+a:=5+6;
+DISPLAY a+1.

@@ -30,7 +30,8 @@ enum TOKEN {
 	FOR_T,
 	TO_T,
 	BEGIN_T,
-	END_T
+	END_T,
+	DISPLAY_T
 };
 
 #endif

@@ -69,8 +69,9 @@ TYPE TypeOfIdentifier(string id){
 // Program := [DeclarationPart] StatementPart
 // DeclarationPart := "[" Identifier {"," Identifier} "]"
 // StatementPart := Statement {";" Statement} "."
-// Statement := AssignementStatement | IfStatement | WhileStatement | ForStatement | BlockStatement
+// Statement := AssignementStatement | IfStatement | WhileStatement | ForStatement | BlockStatement | DisplayStatement
 // AssignementStatement := Identifier ":=" Expression
+// DisplayStatement := "DISPLAY" Expression
 // IfStatement := "IF" Expression "THEN" Statement [ "ELSE" Statement ]
 // WhileStatement := "WHILE" Expression "DO" Statement
 // ForStatement := "FOR" AssignementStatement "TO" Expression "DO" Statement
@@ -294,9 +295,6 @@ void DeclarationPart(void){
 	if(current != LBRACKET)
 		return;
 
-	cout << "\t.data" << endl;
-	cout << "\t.align 8" << endl;
-
 	NextToken();
 
 	if(current != ID)
@@ -348,6 +346,21 @@ string AssignementStatement(void){
 	cout << "\tpop " << variable << "(%rip)" << endl;
 
 	return variable;
+}
+
+void DisplayStatement(void){
+	NextToken();
+
+	TYPE expressionType = Expression();
+
+	if(expressionType != UNSIGNED_INT)
+		TypeError("DISPLAY ne peut afficher qu'un entier");
+
+	cout << "\tpop %rdx\t# The value to be displayed" << endl;
+	cout << "\tleaq FormatString1(%rip), %rcx\t# \"%llu\\n\"" << endl;
+	cout << "\tsubq $40, %rsp\t# shadow space + align stack for Windows printf" << endl;
+	cout << "\tcall printf" << endl;
+	cout << "\taddq $40, %rsp\t# restore stack" << endl;
 }
 
 void IfStatement(void){
@@ -484,6 +497,9 @@ void Statement(void){
 	else if(current == BEGIN_T){
 		BlockStatement();
 	}
+	else if(current == DISPLAY_T){
+		DisplayStatement();
+	}
 	else{
 		Error("instruction attendue");
 	}
@@ -492,6 +508,7 @@ void Statement(void){
 void StatementPart(void){
 	cout << "\t.text" << endl;
 	cout << "\t.globl main" << endl;
+	cout << "\t.extern printf" << endl;
 	cout << "main:" << endl;
 	cout << "\tmovq %rsp, %rbp" << endl;
 
@@ -513,6 +530,10 @@ void StatementPart(void){
 }
 
 void Program(void){
+	cout << "\t.data" << endl;
+	cout << "\t.align 8" << endl;
+	cout << "FormatString1:\t.string \"%llu\\n\"" << endl;
+
 	DeclarationPart();
 	StatementPart();
 }

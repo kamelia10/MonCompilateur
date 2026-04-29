@@ -1,7 +1,7 @@
 all: test
 
 clean:
-	rm -f *.o *.s test compilateur tokeniser.cpp
+	rm -f *.o *.s test test.exe compilateur compilateur.exe tokeniser.cpp
 
 tokeniser.cpp: tokeniser.l tokeniser.h
 	flex++ -d -otokeniser.cpp tokeniser.l
@@ -14,4 +14,4 @@ compilateur: compilateur.cpp tokeniser.o tokeniser.h
 
 test: compilateur test.p
 	./compilateur < test.p > test.s
-	gcc -ggdb -no-pie -fno-pie test.s -o test
+	gcc -ggdb -no-pie -fno-pie test.s -o test -lmsvcrt
