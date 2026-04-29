@@ -2,48 +2,48 @@
 #define TOKENISER_H
 
 enum TOKEN {
-    FEOF,
-    UNKNOWN,
+	FEOF,
+	UNKNOWN,
 
-    NUMBER,
-    ID,
-    STRINGCONST,
+	NUMBER,
+	FLOAT_NUMBER,
+	CHARCONST,
+	ID,
+	STRINGCONST,
 
-    VAR_T,
-    INTEGER_T,
-    BOOLEAN_T,
+	VAR_T,
+	INTEGER_T,
+	BOOLEAN_T,
+	DOUBLE_T,
+	CHAR_T,
 
-    IF_T,
-    THEN_T,
-    ELSE_T,
+	IF_T,
+	THEN_T,
+	ELSE_T,
+	WHILE_T,
+	DO_T,
+	FOR_T,
+	TO_T,
+	DOWNTO_T,
+	BEGIN_T,
+	END_T,
+	DISPLAY_T,
 
-    WHILE_T,
-    DO_T,
+	LBRACKET,
+	RBRACKET,
+	LPARENT,
+	RPARENT,
 
-    FOR_T,
-    TO_T,
-    DOWNTO_T,
+	COMMA,
+	SEMICOLON,
+	DOT,
+	COLON,
 
-    BEGIN_T,
-    END_T,
-
-    DISPLAY_T,
-
-    RBRACKET,
-    LBRACKET,
-    RPARENT,
-    LPARENT,
-
-    COMMA,
-    SEMICOLON,
-    DOT,
-    COLON,
-
-    ADDOP,
-    MULOP,
-    RELOP,
-    NOT,
-    ASSIGN
+	ADDOP,
+	MULOP,
+	RELOP,
+	NOT,
+	ASSIGN
 };
 
 #endif

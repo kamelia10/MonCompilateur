@@ -1,9 +1,13 @@
 VAR
-a,b,c : BOOLEAN;
-d,e : INTEGER.
+a : INTEGER;
+x : DOUBLE;
+c : CHAR;
+b : BOOLEAN.
 
-a:=5<6;
-b:=a;
-d:=5;
-e:=10;
-DISPLAY d+e.
+a:=5+6;
+x:=1.5+2.25;
+c:='A';
+b:=a>3;
+DISPLAY a;
+DISPLAY x;
+DISPLAY c.

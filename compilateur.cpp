@@ -30,7 +30,9 @@ using namespace std;
 
 enum TYPE {
 	UNSIGNED_INT,
-	BOOLEAN
+	BOOLEAN,
+	DOUBLE_TYPE,
+	CHAR_TYPE
 };
 
 TOKEN current;
@@ -63,72 +65,93 @@ bool IsDeclared(string id){
 TYPE TypeOfIdentifier(string id){
 	if(!IsDeclared(id))
 		Error("variable non declaree");
-
 	return declaredVariables[id];
 }
 
 string TypeName(TYPE t){
-	if(t == UNSIGNED_INT)
-		return "INTEGER";
-	return "BOOLEAN";
+	if(t == UNSIGNED_INT) return "INTEGER";
+	if(t == BOOLEAN) return "BOOLEAN";
+	if(t == DOUBLE_TYPE) return "DOUBLE";
+	return "CHAR";
 }
 
 // Program := [VarDeclarationPart] StatementPart
 // VarDeclarationPart := "VAR" VarDeclaration {";" VarDeclaration} "."
 // VarDeclaration := Identifier {"," Identifier} ":" Type
-// Type := "INTEGER" | "BOOLEAN"
-// StatementPart := Statement {";" Statement} "."
+// Type := "INTEGER" | "BOOLEAN" | "DOUBLE" | "CHAR"
 // Statement := AssignementStatement | IfStatement | WhileStatement | ForStatement | BlockStatement | DisplayStatement
-// AssignementStatement := Identifier ":=" Expression
 // DisplayStatement := "DISPLAY" Expression
-// IfStatement := "IF" Expression "THEN" Statement [ "ELSE" Statement ]
-// WhileStatement := "WHILE" Expression "DO" Statement
-// ForStatement := "FOR" AssignementStatement "TO" Expression "DO" Statement
-// BlockStatement := "BEGIN" Statement { ";" Statement } "END"
-// Expression := SimpleExpression [RelationalOperator SimpleExpression]
-// SimpleExpression := Term {AdditiveOperator Term}
-// Term := Factor {MultiplicativeOperator Factor}
-// Factor := Number | Identifier | "(" Expression ")" | "!" Factor
 
 TYPE Expression(void);
 void Statement(void);
 
+void PushDoubleFromBits(double value){
+	unsigned long long bits;
+	memcpy(&bits, &value, sizeof(double));
+
+	cout << "\tmovabsq $" << bits << ", %rax\t# double " << value << endl;
+	cout << "\tpushq %rax" << endl;
+}
+
 TYPE ReadType(void){
-	TYPE t;
-
 	if(current == INTEGER_T){
-		t = UNSIGNED_INT;
 		NextToken();
-		return t;
+		return UNSIGNED_INT;
 	}
-
 	if(current == BOOLEAN_T){
-		t = BOOLEAN;
 		NextToken();
-		return t;
+		return BOOLEAN;
+	}
+	if(current == DOUBLE_T){
+		NextToken();
+		return DOUBLE_TYPE;
+	}
+	if(current == CHAR_T){
+		NextToken();
+		return CHAR_TYPE;
 	}
 
-	Error("type INTEGER ou BOOLEAN attendu");
+	Error("type INTEGER, BOOLEAN, DOUBLE ou CHAR attendu");
 	return UNSIGNED_INT;
 }
 
 TYPE Identifier(void){
 	string name = lexer->YYText();
+	TYPE t = TypeOfIdentifier(name);
 
-	if(!IsDeclared(name))
-		Error("variable non declaree");
+	if(t == CHAR_TYPE){
+		cout << "\tmovzbq " << name << "(%rip), %rax" << endl;
+		cout << "\tpush %rax" << endl;
+	}
+	else{
+		cout << "\tpushq " << name << "(%rip)" << endl;
+	}
 
-	cout << "\tpush " << name << "(%rip)" << endl;
 	NextToken();
-
-	return TypeOfIdentifier(name);
+	return t;
 }
 
 TYPE Number(void){
 	cout << "\tpush $" << lexer->YYText() << endl;
 	NextToken();
-
 	return UNSIGNED_INT;
+}
+
+TYPE FloatNumber(void){
+	double value = atof(lexer->YYText());
+	PushDoubleFromBits(value);
+	NextToken();
+	return DOUBLE_TYPE;
+}
+
+TYPE CharConstant(void){
+	string txt = lexer->YYText();
+	unsigned int ascii = (unsigned char)txt[1];
+
+	cout << "\tpush $" << ascii << "\t# char " << txt << endl;
+	NextToken();
+
+	return CHAR_TYPE;
 }
 
 TYPE Factor(void){
@@ -147,6 +170,12 @@ TYPE Factor(void){
 	else if(current == NUMBER){
 		return Number();
 	}
+	else if(current == FLOAT_NUMBER){
+		return FloatNumber();
+	}
+	else if(current == CHARCONST){
+		return CharConstant();
+	}
 	else if(current == ID){
 		return Identifier();
 	}
@@ -157,7 +186,7 @@ TYPE Factor(void){
 		factorType = Factor();
 
 		if(factorType != BOOLEAN)
-			TypeError("l'operateur ! doit etre applique a un booleen");
+			TypeError("l'operateur ! doit etre applique a un BOOLEAN");
 
 		cout << "\tpop %rax" << endl;
 		cout << "\tcmpq $0, %rax" << endl;
@@ -175,6 +204,26 @@ TYPE Factor(void){
 	return UNSIGNED_INT;
 }
 
+void GenerateDoubleOperation(string op){
+	cout << "\tfldl 8(%rsp)" << endl;
+	cout << "\tfldl (%rsp)" << endl;
+	cout << "\taddq $16, %rsp" << endl;
+
+	if(op == "+")
+		cout << "\tfaddp %st, %st(1)" << endl;
+	else if(op == "-")
+		cout << "\tfsubp %st, %st(1)" << endl;
+	else if(op == "*")
+		cout << "\tfmulp %st, %st(1)" << endl;
+	else if(op == "/")
+		cout << "\tfdivp %st, %st(1)" << endl;
+	else
+		Error("operation flottante inconnue");
+
+	cout << "\tsubq $8, %rsp" << endl;
+	cout << "\tfstpl (%rsp)" << endl;
+}
+
 TYPE Term(void){
 	string op;
 	TYPE leftType;
@@ -190,38 +239,51 @@ TYPE Term(void){
 
 		if(op == "&&"){
 			if(leftType != BOOLEAN || rightType != BOOLEAN)
-				TypeError("l'operateur && attend deux booleens");
+				TypeError("l'operateur && attend deux BOOLEAN");
+
+			cout << "\tpop %rbx" << endl;
+			cout << "\tpop %rax" << endl;
+			cout << "\tandq %rbx, %rax" << endl;
+			cout << "\tpush %rax" << endl;
+
 			leftType = BOOLEAN;
+		}
+		else if(leftType == DOUBLE_TYPE || rightType == DOUBLE_TYPE){
+			if(leftType != DOUBLE_TYPE || rightType != DOUBLE_TYPE)
+				TypeError("operation entre types incompatibles : " + TypeName(leftType) + " et " + TypeName(rightType));
+
+			if(op != "*" && op != "/")
+				TypeError("seuls * et / sont autorises ici pour DOUBLE");
+
+			GenerateDoubleOperation(op);
+			leftType = DOUBLE_TYPE;
 		}
 		else{
 			if(leftType != UNSIGNED_INT || rightType != UNSIGNED_INT)
 				TypeError("les operateurs * / % attendent deux INTEGER");
+
+			cout << "\tpop %rbx" << endl;
+			cout << "\tpop %rax" << endl;
+
+			if(op == "*"){
+				cout << "\tmulq %rbx" << endl;
+				cout << "\tpush %rax" << endl;
+			}
+			else if(op == "/"){
+				cout << "\tmovq $0, %rdx" << endl;
+				cout << "\tdivq %rbx" << endl;
+				cout << "\tpush %rax" << endl;
+			}
+			else if(op == "%"){
+				cout << "\tmovq $0, %rdx" << endl;
+				cout << "\tdivq %rbx" << endl;
+				cout << "\tpush %rdx" << endl;
+			}
+			else{
+				Error("operateur multiplicatif inconnu");
+			}
+
 			leftType = UNSIGNED_INT;
-		}
-
-		cout << "\tpop %rbx" << endl;
-		cout << "\tpop %rax" << endl;
-
-		if(op == "*"){
-			cout << "\tmulq %rbx" << endl;
-			cout << "\tpush %rax" << endl;
-		}
-		else if(op == "/"){
-			cout << "\tmovq $0, %rdx" << endl;
-			cout << "\tdivq %rbx" << endl;
-			cout << "\tpush %rax" << endl;
-		}
-		else if(op == "%"){
-			cout << "\tmovq $0, %rdx" << endl;
-			cout << "\tdivq %rbx" << endl;
-			cout << "\tpush %rdx" << endl;
-		}
-		else if(op == "&&"){
-			cout << "\tandq %rbx, %rax" << endl;
-			cout << "\tpush %rax" << endl;
-		}
-		else{
-			Error("operateur multiplicatif inconnu");
 		}
 	}
 
@@ -243,31 +305,86 @@ TYPE SimpleExpression(void){
 
 		if(op == "||"){
 			if(leftType != BOOLEAN || rightType != BOOLEAN)
-				TypeError("l'operateur || attend deux booleens");
+				TypeError("l'operateur || attend deux BOOLEAN");
+
+			cout << "\tpop %rbx" << endl;
+			cout << "\tpop %rax" << endl;
+			cout << "\torq %rbx, %rax" << endl;
+			cout << "\tpush %rax" << endl;
+
 			leftType = BOOLEAN;
+		}
+		else if(leftType == DOUBLE_TYPE || rightType == DOUBLE_TYPE){
+			if(leftType != DOUBLE_TYPE || rightType != DOUBLE_TYPE)
+				TypeError("operation entre types incompatibles : " + TypeName(leftType) + " et " + TypeName(rightType));
+
+			GenerateDoubleOperation(op);
+			leftType = DOUBLE_TYPE;
 		}
 		else{
 			if(leftType != UNSIGNED_INT || rightType != UNSIGNED_INT)
 				TypeError("les operateurs + et - attendent deux INTEGER");
+
+			cout << "\tpop %rbx" << endl;
+			cout << "\tpop %rax" << endl;
+
+			if(op == "+")
+				cout << "\taddq %rbx, %rax" << endl;
+			else if(op == "-")
+				cout << "\tsubq %rbx, %rax" << endl;
+			else
+				Error("operateur additif inconnu");
+
+			cout << "\tpush %rax" << endl;
 			leftType = UNSIGNED_INT;
 		}
-
-		cout << "\tpop %rbx" << endl;
-		cout << "\tpop %rax" << endl;
-
-		if(op == "+")
-			cout << "\taddq %rbx, %rax" << endl;
-		else if(op == "-")
-			cout << "\tsubq %rbx, %rax" << endl;
-		else if(op == "||")
-			cout << "\torq %rbx, %rax" << endl;
-		else
-			Error("operateur additif inconnu");
-
-		cout << "\tpush %rax" << endl;
 	}
 
 	return leftType;
+}
+
+void GenerateDoubleComparison(string op, unsigned long n){
+	cout << "\tfldl (%rsp)" << endl;
+	cout << "\tfldl 8(%rsp)" << endl;
+	cout << "\taddq $16, %rsp" << endl;
+	cout << "\tfcomip %st(1), %st" << endl;
+	cout << "\tfstp %st(0)" << endl;
+
+	if(op == "==")
+		cout << "\tje BoolTrue" << n << endl;
+	else if(op == "!=")
+		cout << "\tjne BoolTrue" << n << endl;
+	else if(op == "<")
+		cout << "\tjb BoolTrue" << n << endl;
+	else if(op == ">")
+		cout << "\tja BoolTrue" << n << endl;
+	else if(op == "<=")
+		cout << "\tjbe BoolTrue" << n << endl;
+	else if(op == ">=")
+		cout << "\tjae BoolTrue" << n << endl;
+	else
+		Error("operateur relationnel inconnu");
+}
+
+void GenerateIntegerComparison(string op, unsigned long n){
+	cout << "\tpop %rbx" << endl;
+	cout << "\tpop %rax" << endl;
+	cout << "\tcmpq %rbx, %rax" << endl;
+
+	if(op == "==")
+		cout << "\tje BoolTrue" << n << endl;
+	else if(op == "!=")
+		cout << "\tjne BoolTrue" << n << endl;
+	else if(op == "<")
+		cout << "\tjb BoolTrue" << n << endl;
+	else if(op == ">")
+		cout << "\tja BoolTrue" << n << endl;
+	else if(op == "<=")
+		cout << "\tjbe BoolTrue" << n << endl;
+	else if(op == ">=")
+		cout << "\tjae BoolTrue" << n << endl;
+	else
+		Error("operateur relationnel inconnu");
 }
 
 TYPE Expression(void){
@@ -289,24 +406,10 @@ TYPE Expression(void){
 
 		n = ++labelNumber;
 
-		cout << "\tpop %rbx" << endl;
-		cout << "\tpop %rax" << endl;
-		cout << "\tcmpq %rbx, %rax" << endl;
-
-		if(op == "==")
-			cout << "\tje BoolTrue" << n << endl;
-		else if(op == "!=")
-			cout << "\tjne BoolTrue" << n << endl;
-		else if(op == "<")
-			cout << "\tjb BoolTrue" << n << endl;
-		else if(op == ">")
-			cout << "\tja BoolTrue" << n << endl;
-		else if(op == "<=")
-			cout << "\tjbe BoolTrue" << n << endl;
-		else if(op == ">=")
-			cout << "\tjae BoolTrue" << n << endl;
+		if(leftType == DOUBLE_TYPE)
+			GenerateDoubleComparison(op, n);
 		else
-			Error("operateur relationnel inconnu");
+			GenerateIntegerComparison(op, n);
 
 		cout << "\tpush $0" << endl;
 		cout << "\tjmp BoolEnd" << n << endl;
@@ -344,7 +447,6 @@ void OneVarDeclaration(void){
 		Error("':' attendu dans la declaration");
 
 	NextToken();
-
 	declaredType = ReadType();
 
 	for(unsigned int i=0; i<names.size(); i++){
@@ -352,7 +454,13 @@ void OneVarDeclaration(void){
 			Error("variable deja declaree");
 
 		declaredVariables[names[i]] = declaredType;
-		cout << names[i] << ":\t.quad 0\t# " << TypeName(declaredType) << endl;
+
+		if(declaredType == DOUBLE_TYPE)
+			cout << names[i] << ":\t.double 0.0\t# DOUBLE" << endl;
+		else if(declaredType == CHAR_TYPE)
+			cout << names[i] << ":\t.byte 0\t# CHAR" << endl;
+		else
+			cout << names[i] << ":\t.quad 0\t# " << TypeName(declaredType) << endl;
 	}
 }
 
@@ -361,7 +469,6 @@ void VarDeclarationPart(void){
 		return;
 
 	NextToken();
-
 	OneVarDeclaration();
 
 	while(current == SEMICOLON){
@@ -399,7 +506,13 @@ string AssignementStatement(void){
 		TypeError("affectation impossible : " + variable + " est " + TypeName(variableType)
 		          + " mais l'expression est " + TypeName(expressionType));
 
-	cout << "\tpop " << variable << "(%rip)" << endl;
+	if(variableType == CHAR_TYPE){
+		cout << "\tpop %rax" << endl;
+		cout << "\tmovb %al, " << variable << "(%rip)" << endl;
+	}
+	else{
+		cout << "\tpopq " << variable << "(%rip)" << endl;
+	}
 
 	return variable;
 }
@@ -409,14 +522,26 @@ void DisplayStatement(void){
 
 	TYPE expressionType = Expression();
 
-	if(expressionType != UNSIGNED_INT)
-		TypeError("DISPLAY ne peut afficher qu'un INTEGER");
+	if(expressionType == UNSIGNED_INT || expressionType == BOOLEAN){
+		cout << "\tpop %rdx" << endl;
+		cout << "\tleaq FormatInteger(%rip), %rcx" << endl;
+	}
+	else if(expressionType == CHAR_TYPE){
+		cout << "\tpop %rdx" << endl;
+		cout << "\tleaq FormatChar(%rip), %rcx" << endl;
+	}
+	else if(expressionType == DOUBLE_TYPE){
+		cout << "\tpop %rdx" << endl;
+		cout << "\tmovq %rdx, %xmm1" << endl;
+		cout << "\tleaq FormatDouble(%rip), %rcx" << endl;
+	}
+	else{
+		TypeError("type non affichable");
+	}
 
-	cout << "\tpop %rdx\t# The value to be displayed" << endl;
-	cout << "\tleaq FormatString1(%rip), %rcx\t# \"%llu\\n\"" << endl;
-	cout << "\tsubq $40, %rsp\t# shadow space + align stack for Windows printf" << endl;
+	cout << "\tsubq $40, %rsp" << endl;
 	cout << "\tcall printf" << endl;
-	cout << "\taddq $40, %rsp\t# restore stack" << endl;
+	cout << "\taddq $40, %rsp" << endl;
 }
 
 void IfStatement(void){
@@ -538,27 +663,20 @@ void BlockStatement(void){
 }
 
 void Statement(void){
-	if(current == ID){
+	if(current == ID)
 		AssignementStatement();
-	}
-	else if(current == IF_T){
+	else if(current == IF_T)
 		IfStatement();
-	}
-	else if(current == WHILE_T){
+	else if(current == WHILE_T)
 		WhileStatement();
-	}
-	else if(current == FOR_T){
+	else if(current == FOR_T)
 		ForStatement();
-	}
-	else if(current == BEGIN_T){
+	else if(current == BEGIN_T)
 		BlockStatement();
-	}
-	else if(current == DISPLAY_T){
+	else if(current == DISPLAY_T)
 		DisplayStatement();
-	}
-	else{
+	else
 		Error("instruction attendue");
-	}
 }
 
 void StatementPart(void){
@@ -588,7 +706,9 @@ void StatementPart(void){
 void Program(void){
 	cout << "\t.data" << endl;
 	cout << "\t.align 8" << endl;
-	cout << "FormatString1:\t.string \"%llu\\n\"" << endl;
+	cout << "FormatInteger:\t.string \"%llu\\n\"" << endl;
+	cout << "FormatDouble:\t.string \"%f\\n\"" << endl;
+	cout << "FormatChar:\t.string \"%c\\n\"" << endl;
 
 	VarDeclarationPart();
 	StatementPart();
