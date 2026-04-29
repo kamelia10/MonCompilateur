@@ -21,113 +21,85 @@
 #include <iostream>
 #include <cstdlib>
 #include <set>
+#include <cstring>
+#include <FlexLexer.h>
+#include "tokeniser.h"
 
 using namespace std;
 
-char current;
-char nextcar;
-int hasNext = 0;
+TOKEN current;
+FlexLexer* lexer = new yyFlexLexer;
 
-set<char> declaredVariables;
-int labelNumber = 0;
+set<string> declaredVariables;
+unsigned long labelNumber = 0;
 
-void Error(string s){
-	cerr << "Erreur : " << s << " avec le caractere [" << current << "]" << endl;
+void Error(string message){
+	cerr << "Ligne " << lexer->lineno()
+	     << " : lu [" << lexer->YYText() << "] mais "
+	     << message << endl;
 	exit(-1);
 }
 
-// Read character and skip spaces until non space character is read
-void ReadChar(void){
-	if(hasNext){
-		current = nextcar;
-		hasNext = 0;
-	}
-	else{
-		while(cin.get(current) && (current==' ' || current=='\t' || current=='\n'));
-		if(cin.eof())
-			current = '\0';
-	}
+void NextToken(void){
+	current = (TOKEN) lexer->yylex();
 }
 
-// look ahead : read one character in advance
-void LookAhead(void){
-	if(!hasNext){
-		while(cin.get(nextcar) && (nextcar==' ' || nextcar=='\t' || nextcar=='\n'));
-		if(cin.eof())
-			nextcar = '\0';
-		hasNext = 1;
-	}
+bool IsDeclared(string id){
+	return declaredVariables.find(id) != declaredVariables.end();
 }
 
 // Program := [DeclarationPart] StatementPart
-// DeclarationPart := "[" Letter {"," Letter} "]"
+// DeclarationPart := "[" Identifier {"," Identifier} "]"
 // StatementPart := Statement {";" Statement} "."
-// Statement := AssignementStatement
-// AssignementStatement := Letter "=" Expression
+// Statement := AssignementStatement | IfStatement | WhileStatement | ForStatement | BlockStatement
+// AssignementStatement := Identifier ":=" Expression
+// IfStatement := "IF" Expression "THEN" Statement [ "ELSE" Statement ]
+// WhileStatement := "WHILE" Expression "DO" Statement
+// ForStatement := "FOR" AssignementStatement "TO" Expression "DO" Statement
+// BlockStatement := "BEGIN" Statement { ";" Statement } "END"
 // Expression := SimpleExpression [RelationalOperator SimpleExpression]
 // SimpleExpression := Term {AdditiveOperator Term}
 // Term := Factor {MultiplicativeOperator Factor}
-// Factor := Number | Letter | "(" Expression ")" | "!" Factor
-// Number := Digit{Digit}
-// AdditiveOperator := "+" | "-" | "||"
-// MultiplicativeOperator := "*" | "/" | "%" | "&&"
-// RelationalOperator := "==" | "!=" | "<" | ">" | "<=" | ">="
-// Digit := "0"|"1"|"2"|"3"|"4"|"5"|"6"|"7"|"8"|"9"
-// Letter := "a"|...|"z"
-
-bool IsDeclared(char c){
-	return declaredVariables.find(c) != declaredVariables.end();
-}
+// Factor := Number | Identifier | "(" Expression ")" | "!" Factor
 
 void Expression(void);
+void Statement(void);
 
-void Number(void){
-	unsigned long long value = 0;
+void Identifier(void){
+	string name = lexer->YYText();
 
-	if(current < '0' || current > '9')
-		Error("nombre attendu");
-
-	while(current >= '0' && current <= '9'){
-		value = value * 10 + (current - '0');
-		ReadChar();
-	}
-
-	cout << "\tpush $" << value << endl;
-}
-
-void Letter(void){
-	char variable = current;
-
-	if(variable < 'a' || variable > 'z')
-		Error("lettre attendue");
-
-	if(!IsDeclared(variable))
+	if(!IsDeclared(name))
 		Error("variable non declaree");
 
-	cout << "\tpush " << variable << "(%rip)" << endl;
-	ReadChar();
+	cout << "\tpush " << name << "(%rip)" << endl;
+	NextToken();
+}
+
+void Number(void){
+	cout << "\tpush $" << lexer->YYText() << endl;
+	NextToken();
 }
 
 void Factor(void){
-	if(current == '('){
-		ReadChar();
+	if(current == LPARENT){
+		NextToken();
 		Expression();
 
-		if(current != ')')
-			Error("')' etait attendu");
+		if(current != RPARENT)
+			Error("')' attendu");
 
-		ReadChar();
+		NextToken();
 	}
-	else if(current >= '0' && current <= '9'){
+	else if(current == NUMBER){
 		Number();
 	}
-	else if(current >= 'a' && current <= 'z'){
-		Letter();
+	else if(current == ID){
+		Identifier();
 	}
-	else if(current == '!'){
-		int n = ++labelNumber;
+	else if(current == NOT){
+		unsigned long n = ++labelNumber;
 
-		ReadChar();
+		NextToken();
 		Factor();
 
 		cout << "\tpop %rax" << endl;
@@ -145,144 +117,80 @@ void Factor(void){
 }
 
 void Term(void){
-	char op;
+	string op;
 
 	Factor();
 
-	while(current == '*' || current == '/' || current == '%' || current == '&'){
-		op = current;
-
-		if(current == '&'){
-			ReadChar();
-			if(current != '&')
-				Error("l'operateur ET s'ecrit &&");
-			ReadChar();
-		}
-		else{
-			ReadChar();
-		}
+	while(current == MULOP){
+		op = lexer->YYText();
+		NextToken();
 
 		Factor();
 
 		cout << "\tpop %rbx" << endl;
 		cout << "\tpop %rax" << endl;
 
-		if(op == '*'){
+		if(op == "*"){
 			cout << "\tmulq %rbx" << endl;
 			cout << "\tpush %rax" << endl;
 		}
-		else if(op == '/'){
+		else if(op == "/"){
 			cout << "\tmovq $0, %rdx" << endl;
 			cout << "\tdivq %rbx" << endl;
 			cout << "\tpush %rax" << endl;
 		}
-		else if(op == '%'){
+		else if(op == "%"){
 			cout << "\tmovq $0, %rdx" << endl;
 			cout << "\tdivq %rbx" << endl;
 			cout << "\tpush %rdx" << endl;
 		}
-		else if(op == '&'){
+		else if(op == "&&"){
 			cout << "\tandq %rbx, %rax" << endl;
 			cout << "\tpush %rax" << endl;
+		}
+		else{
+			Error("operateur multiplicatif inconnu");
 		}
 	}
 }
 
 void SimpleExpression(void){
-	char op;
+	string op;
 
 	Term();
 
-	while(current == '+' || current == '-' || current == '|'){
-		op = current;
-
-		if(current == '|'){
-			ReadChar();
-			if(current != '|')
-				Error("l'operateur OU s'ecrit ||");
-			ReadChar();
-		}
-		else{
-			ReadChar();
-		}
+	while(current == ADDOP){
+		op = lexer->YYText();
+		NextToken();
 
 		Term();
 
 		cout << "\tpop %rbx" << endl;
 		cout << "\tpop %rax" << endl;
 
-		if(op == '+')
+		if(op == "+")
 			cout << "\taddq %rbx, %rax" << endl;
-		else if(op == '-')
+		else if(op == "-")
 			cout << "\tsubq %rbx, %rax" << endl;
-		else if(op == '|')
+		else if(op == "||")
 			cout << "\torq %rbx, %rax" << endl;
+		else
+			Error("operateur additif inconnu");
 
 		cout << "\tpush %rax" << endl;
 	}
 }
 
-string RelationalOperator(void){
-	string op;
-
-	if(current == '='){
-		LookAhead();
-		if(nextcar == '='){
-			ReadChar();
-			ReadChar();
-			op = "==";
-		}
-		else{
-			Error("utilisez == pour tester l'egalite");
-		}
-	}
-	else if(current == '!'){
-		LookAhead();
-		if(nextcar == '='){
-			ReadChar();
-			ReadChar();
-			op = "!=";
-		}
-		else{
-			Error("operateur != attendu");
-		}
-	}
-	else if(current == '<'){
-		LookAhead();
-		if(nextcar == '='){
-			ReadChar();
-			ReadChar();
-			op = "<=";
-		}
-		else{
-			ReadChar();
-			op = "<";
-		}
-	}
-	else if(current == '>'){
-		LookAhead();
-		if(nextcar == '='){
-			ReadChar();
-			ReadChar();
-			op = ">=";
-		}
-		else{
-			ReadChar();
-			op = ">";
-		}
-	}
-
-	return op;
-}
-
 void Expression(void){
 	string op;
-	int n;
+	unsigned long n;
 
 	SimpleExpression();
 
-	if(current == '=' || current == '!' || current == '<' || current == '>'){
-		op = RelationalOperator();
+	if(current == RELOP){
+		op = lexer->YYText();
+		NextToken();
+
 		SimpleExpression();
 
 		n = ++labelNumber;
@@ -292,49 +200,56 @@ void Expression(void){
 		cout << "\tcmpq %rbx, %rax" << endl;
 
 		if(op == "==")
-			cout << "\tje True" << n << endl;
+			cout << "\tje BoolTrue" << n << endl;
 		else if(op == "!=")
-			cout << "\tjne True" << n << endl;
+			cout << "\tjne BoolTrue" << n << endl;
 		else if(op == "<")
-			cout << "\tjb True" << n << endl;
+			cout << "\tjb BoolTrue" << n << endl;
 		else if(op == ">")
-			cout << "\tja True" << n << endl;
+			cout << "\tja BoolTrue" << n << endl;
 		else if(op == "<=")
-			cout << "\tjbe True" << n << endl;
+			cout << "\tjbe BoolTrue" << n << endl;
 		else if(op == ">=")
-			cout << "\tjae True" << n << endl;
+			cout << "\tjae BoolTrue" << n << endl;
+		else
+			Error("operateur relationnel inconnu");
 
 		cout << "\tpush $0" << endl;
-		cout << "\tjmp EndCompare" << n << endl;
-		cout << "True" << n << ":" << endl;
+		cout << "\tjmp BoolEnd" << n << endl;
+		cout << "BoolTrue" << n << ":" << endl;
 		cout << "\tpush $-1" << endl;
-		cout << "EndCompare" << n << ":" << endl;
+		cout << "BoolEnd" << n << ":" << endl;
 	}
 }
 
 void DeclarationPart(void){
-	if(current != '[')
+	if(current != LBRACKET)
 		return;
 
 	cout << "\t.data" << endl;
 	cout << "\t.align 8" << endl;
 
-	ReadChar();
+	NextToken();
+
+	if(current != ID)
+		Error("identificateur attendu dans la declaration");
 
 	while(true){
-		if(current < 'a' || current > 'z')
-			Error("lettre minuscule attendue dans la declaration");
+		if(current != ID)
+			Error("identificateur attendu");
 
-		declaredVariables.insert(current);
-		cout << current << ":\t.quad 0" << endl;
+		string name = lexer->YYText();
+		declaredVariables.insert(name);
 
-		ReadChar();
+		cout << name << ":\t.quad 0" << endl;
 
-		if(current == ','){
-			ReadChar();
+		NextToken();
+
+		if(current == COMMA){
+			NextToken();
 		}
-		else if(current == ']'){
-			ReadChar();
+		else if(current == RBRACKET){
+			NextToken();
 			break;
 		}
 		else{
@@ -343,31 +258,152 @@ void DeclarationPart(void){
 	}
 }
 
-void AssignementStatement(void){
-	char variable;
+string AssignementStatement(void){
+	if(current != ID)
+		Error("identificateur attendu a gauche de l'affectation");
 
-	if(current < 'a' || current > 'z')
-		Error("instruction d'affectation attendue");
-
-	variable = current;
+	string variable = lexer->YYText();
 
 	if(!IsDeclared(variable))
-		Error("variable non declaree a gauche de l'affectation");
+		Error("variable non declaree");
 
-	ReadChar();
+	NextToken();
 
-	if(current != '=')
-		Error("'=' attendu dans l'affectation");
+	if(current != ASSIGN)
+		Error("':=' attendu");
 
-	ReadChar();
+	NextToken();
 
 	Expression();
 
 	cout << "\tpop " << variable << "(%rip)" << endl;
+
+	return variable;
+}
+
+void IfStatement(void){
+	unsigned long n = ++labelNumber;
+
+	NextToken();
+
+	Expression();
+
+	if(current != THEN_T)
+		Error("THEN attendu");
+
+	cout << "\tpop %rax" << endl;
+	cout << "\tcmpq $0, %rax" << endl;
+	cout << "\tje ElsePart" << n << endl;
+
+	NextToken();
+	Statement();
+
+	if(current == ELSE_T){
+		cout << "\tjmp EndIf" << n << endl;
+		cout << "ElsePart" << n << ":" << endl;
+
+		NextToken();
+		Statement();
+
+		cout << "EndIf" << n << ":" << endl;
+	}
+	else{
+		cout << "ElsePart" << n << ":" << endl;
+	}
+}
+
+void WhileStatement(void){
+	unsigned long n = ++labelNumber;
+
+	cout << "WhileBegin" << n << ":" << endl;
+
+	NextToken();
+	Expression();
+
+	if(current != DO_T)
+		Error("DO attendu");
+
+	cout << "\tpop %rax" << endl;
+	cout << "\tcmpq $0, %rax" << endl;
+	cout << "\tje WhileEnd" << n << endl;
+
+	NextToken();
+	Statement();
+
+	cout << "\tjmp WhileBegin" << n << endl;
+	cout << "WhileEnd" << n << ":" << endl;
+}
+
+void ForStatement(void){
+	unsigned long n = ++labelNumber;
+
+	NextToken();
+
+	string variable = AssignementStatement();
+
+	if(current != TO_T)
+		Error("TO attendu");
+
+	cout << "ForBegin" << n << ":" << endl;
+
+	NextToken();
+	Expression();
+
+	if(current != DO_T)
+		Error("DO attendu");
+
+	cout << "\tpop %rbx" << endl;
+	cout << "\tmovq " << variable << "(%rip), %rax" << endl;
+	cout << "\tcmpq %rbx, %rax" << endl;
+	cout << "\tja ForEnd" << n << endl;
+
+	NextToken();
+	Statement();
+
+	cout << "\taddq $1, " << variable << "(%rip)" << endl;
+	cout << "\tjmp ForBegin" << n << endl;
+	cout << "ForEnd" << n << ":" << endl;
+}
+
+void BlockStatement(void){
+	NextToken();
+
+	Statement();
+
+	while(current == SEMICOLON){
+		NextToken();
+
+		if(current == END_T)
+			break;
+
+		Statement();
+	}
+
+	if(current != END_T)
+		Error("END attendu");
+
+	NextToken();
 }
 
 void Statement(void){
-	AssignementStatement();
+	if(current == ID){
+		AssignementStatement();
+	}
+	else if(current == IF_T){
+		IfStatement();
+	}
+	else if(current == WHILE_T){
+		WhileStatement();
+	}
+	else if(current == FOR_T){
+		ForStatement();
+	}
+	else if(current == BEGIN_T){
+		BlockStatement();
+	}
+	else{
+		Error("instruction attendue");
+	}
 }
 
 void StatementPart(void){
@@ -378,15 +414,19 @@ void StatementPart(void){
 
 	Statement();
 
-	while(current == ';'){
-		ReadChar();
+	while(current == SEMICOLON){
+		NextToken();
+
+		if(current == DOT)
+			break;
+
 		Statement();
 	}
 
-	if(current != '.')
+	if(current != DOT)
 		Error("'.' attendu a la fin du programme");
 
-	ReadChar();
+	NextToken();
 }
 
 void Program(void){
@@ -395,16 +435,16 @@ void Program(void){
 }
 
 int main(void){
-	// Header for gcc assembler / linker
 	cout << "\t\t\t# This code was produced by the CERI Compiler" << endl;
 
-	// Let's proceed to the analysis and code production
-	ReadChar();
+	NextToken();
 	Program();
 
-	// Trailer for the gcc assembler / linker
 	cout << "\tmovq %rbp, %rsp\t\t# Restore the position of the stack's top" << endl;
 	cout << "\tret\t\t\t# Return from main function" << endl;
+
+	if(current != FEOF)
+		Error("caracteres en trop a la fin du programme");
 
 	return 0;
 }

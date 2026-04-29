@@ -1,0 +1,15 @@
+			# This code was produced by the CERI Compiler
+	.text		# The following lines contain the program
+	.globl main	# The main function must be visible from outside
+main:			# The main function body :
+	movq %rsp, %rbp	# Save the position of the stack's top
+	push $5
+	push $3
+	pop %rbx
+	pop %rax
+	cmpq %rbx, %rax
+	setl %al
+	movzbq %al, %rax
+	push %rax
+	movq %rbp, %rsp		# Restore the position of the stack's top
+	ret			# Return from main function
