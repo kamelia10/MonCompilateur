@@ -1,8 +1,4 @@
-[a,b,c]
-a:=0;
-b:=3;
-WHILE a<b DO
-BEGIN
-	a:=a+1;
-	c:=a*2
-END.
+[i,s]
+i:=1;
+s:=0;
+FOR i:=1 TO 5 DO s:=s+i.
