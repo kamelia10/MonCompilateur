@@ -40,6 +40,8 @@ unknown      .
 "BEGIN"     return BEGIN_T;
 "END"       return END_T;
 "DISPLAY"   return DISPLAY_T;
+"CASE"      return CASE_T;
+"OF"        return OF_T;
 
 ":="        return ASSIGN;
 ":"         return COLON;

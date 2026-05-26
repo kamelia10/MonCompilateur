@@ -28,6 +28,8 @@ enum TOKEN {
 	BEGIN_T,
 	END_T,
 	DISPLAY_T,
+	CASE_T,
+	OF_T,
 
 	LBRACKET,
 	RBRACKET,
