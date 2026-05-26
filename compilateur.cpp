@@ -1,6 +1,7 @@
 //  A compiler from a very simple Pascal-like structured language LL(k)
 //  to 64-bit 80x86 Assembly langage
 //  Copyright (C) 2019 Pierre Jourlin
+//  Modified by Kamelia Bouzourene (2026) - Université d'Avignon - L2 Informatique
 //
 //  This program is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
