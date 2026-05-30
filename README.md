@@ -4,7 +4,8 @@ Compilateur Pascal simplifié vers assembleur 80x86 64 bits (AT&T).
 Réalisé dans le cadre du cours Assembleur et Compilation - S4, Université d'Avignon.
 
 **Auteure : Kamelia Bouzourene**
-
+Note : développé sous Windows avec MSYS2 UCRT64.
+Le DISPLAY utilise la convention d'appel Windows x64.
 
 
 **Pour compiler et tester :**
