@@ -1,0 +1,6 @@
+*.exe
+*.o
+*.s
+tokeniser.cpp
+test.s__
+htdocs/
